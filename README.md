@@ -63,7 +63,7 @@ flowchart TB
 
   PG[(PostgreSQL<br/>usuários, agenda,<br/>consentimento, prescrição)]
   EHR[(Storage protegido<br/>prontuário cifrado)]
-  SFU[WebRTC / SFU<br/>sala de videochamada]
+  SFU[WebRTC <br/>sala de videochamada]
 
   FE -->|HTTPS / REST + JWT| BE
   FE -->|mídia da consulta| SFU
