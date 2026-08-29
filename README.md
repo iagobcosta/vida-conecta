@@ -51,6 +51,27 @@ Uso distribuído no dia comercial, com picos no **almoço** e no **fim da tarde*
 
 Monólito modular no Spring Boot: um único deploy, módulos internos (agendamento, prontuário, prescrição, consentimento, auth). O vídeo **não** passa pelo backend de negócio — só o sinal de “consulta iniciada/encerrada” e o token de sala.
 
+### Visão geral
+
+O frontend fala com o **backend** (API de negócio) e, na consulta, também com o **WebRTC** (mídia). Banco e prontuário só o backend acessa.
+
+```mermaid
+flowchart TB
+  FE[Frontend<br/>React + Vite + Tailwind]
+
+  BE[Backend<br/>Spring Boot]
+
+  PG[(PostgreSQL<br/>usuários, agenda,<br/>consentimento, prescrição)]
+  EHR[(Storage protegido<br/>prontuário cifrado)]
+  SFU[WebRTC / SFU<br/>sala de videochamada]
+
+  FE -->|HTTPS / REST + JWT| BE
+  FE -->|mídia da consulta| SFU
+
+  BE --> PG
+  BE --> EHR
+  BE -.->|cria sala e devolve token| SFU
+```
 
 ### Módulos do backend
 
