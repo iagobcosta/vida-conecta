@@ -53,7 +53,7 @@ Monólito modular no Spring Boot: um único deploy, módulos internos (agendamen
 
 ### Visão geral
 
-O frontend fala com o **backend** (API de negócio) e, na consulta, também com o **WebRTC** (mídia). Banco e prontuário só o backend acessa.
+O frontend fala com o **backend** (API de negócio) e, na consulta, também com o **WebRTC** (mídia). Banco e prontuário só o backend acessa. **Grafana** concentra métricas e logs (disponibilidade e taxa de queda da chamada).
 
 ```mermaid
 flowchart TB
@@ -63,7 +63,11 @@ flowchart TB
 
   PG[(PostgreSQL<br/>usuários, agenda,<br/>consentimento, prescrição)]
   EHR[(Storage protegido<br/>prontuário cifrado)]
-  SFU[WebRTC <br/>sala de videochamada]
+  SFU[WebRTC<br/>sala de videochamada]
+
+  subgraph obs [Observabilidade]
+    GRAF[Grafana]
+  end
 
   FE -->|HTTPS / REST + JWT| BE
   FE -->|mídia da consulta| SFU
@@ -71,6 +75,9 @@ flowchart TB
   BE --> PG
   BE --> EHR
   BE -.->|cria sala e devolve token| SFU
+
+  BE -->|métricas e logs| GRAF
+  SFU -->|taxa de queda da chamada| GRAF
 ```
 
 ### Módulos do backend
