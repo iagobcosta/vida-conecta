@@ -180,3 +180,10 @@ vida-conecta/
 - [ ] Computação sem Servidores
 - [x] Monitoramento e Análise de Logs
 - [x] Tópicos Avançados em Engenharia de Software
+
+### Plano de Desenvolvimento
+
+- Planejamento;
+- CI/MVP;
+- CD/Observabilidade;
+- Plano de Testes e de escala.
