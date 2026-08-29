@@ -3,6 +3,9 @@
 ### Contexto do negócio
 - Plataforma que conecta pacientes a médicos por consulta em vídeo, com histórico clínico compartilhado entre profissionais.
 
+### SLA desejado
+- 99.9% de disponibilidade; videochamada não pode ter mais que 1% de taxa de queda de conexão.
+
 ### Marcar quais das 19 disciplinas são mais criticas
 - [x] Direito Digital e LGPD
 - [x] Fundamentos de Engenharia de Software
