@@ -165,6 +165,7 @@ sequenceDiagram
 - Auditoria de acesso ao prontuário (quem leu, quando, em qual consulta)
 - Segredos fora do código (variáveis de ambiente / secret manager)
 - Minimização: o SFU de vídeo **não** persiste conteúdo clínico
+- Anonimização dos dados pessoais(dica do professor a melhorar)
 
 ---
 
@@ -200,7 +201,7 @@ vida-conecta/
 - [x] Integração e Entrega Contínua
 - [x] Orquestração de Contêineres e Gerenciamento de Cluster
 - [ ] Infraestrutura Automatizada
-- [ ] Desenvolvimento de Software Seguro – DevSecOps
+- [x] Desenvolvimento de Software Seguro – DevSecOps
 - [x] Testes Automatizados e Contínuos
 - [x] Arquitetura de Microsserviços e Escalabilidade
 - [x] Documentação Técnica
