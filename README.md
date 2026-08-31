@@ -177,17 +177,6 @@ sequenceDiagram
 
 ---
 
-## Estrutura prevista
-
-```
-vida-conecta/
-├── README.md
-├── frontend/          # React + Vite + Tailwind
-└── backend/           # Spring Boot (módulos: auth, agenda, consentimento, prontuário, prescrição, vídeo)
-```
-
----
-
 ## Disciplinas mais críticas neste projeto
 
 - [ ] Ecossistemas de Startups
@@ -216,3 +205,11 @@ vida-conecta/
 - CI/MVP;
 - CD/Observabilidade;
 - Plano de Testes e de escala.
+
+### Links projetos
+
+#### Frontend
+https://github.com/iagobcosta/vida-conecta-frontend
+
+#### Backend
+https://github.com/iagobcosta/vida-conecta-backend
