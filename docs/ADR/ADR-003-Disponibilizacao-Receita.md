@@ -1,35 +1,150 @@
-# ADR 003: Disponibilização da Receita Digital ao Paciente
+# ADR-003: Disponibilização da receita digital vinculada à consulta
 
 ## Status
 Aceito
 
-## Contexto
-A **User Story 1 da Feature 3 (Disponibilização da receita para paciente)** exige que o médico consiga registrar uma prescrição vinculada a uma consulta e disponibilizá-la ao paciente após o atendimento.
+## Data
+2026-09-12
 
-A primeira entrega precisa ser utilizável em um dia útil, preservar a relação entre receita, consulta, médico e paciente e impedir que outros usuários consultem dados clínicos que não lhes pertencem. A consulta da receita pela conta do paciente é a User Story 2. A notificação está tecnicamente disparada no mesmo caso de uso de criação no código atual, embora seja tratada como User Story 3 para fins de evolução da experiência.
+## User story relacionada
+**Feature 3 — User Story 1: Disponibilização da receita para paciente (Dia 1).**
+
+O médico deve emitir uma receita vinculada a uma consulta e disponibilizá-la ao paciente. A consulta da prescrição pela conta do paciente e a evolução da experiência de notificação são incrementos posteriores, embora a notificação in-app básica já seja disparada pelo caso de uso atual.
+
+## Contexto técnico
+
+O domínio de prescrição pertence ao módulo `prescription` e integra-se aos módulos `scheduling`, `identity` e `notification`. Os principais componentes são:
+
+- `PrescriptionController`, que expõe criação, listagem e consulta individual;
+- `PrescriptionService`, que aplica autorização e regras de vínculo;
+- `PrescriptionRepository`, que persiste o cabeçalho;
+- entidade `Prescription` e entidade filha `PrescriptionItem`;
+- `SchedulingFacade`, que resolve a consulta;
+- `IdentityFacade`, que resolve o médico e dados de apresentação;
+- `NotificationFacade`, que publica a notificação `PRESCRIPTION_ISSUED`.
+
+## Drivers da decisão
+
+1. Entregar a primeira receita ponta a ponta em um dia útil.
+2. Impedir que um médico emita receita para consulta de outro médico ou paciente diferente.
+3. Preservar rastreabilidade entre receita, consulta, paciente e médico.
+4. Manter medicamentos separados do cabeçalho para permitir múltiplos itens.
+5. Não introduzir ainda assinatura digital qualificada ou integração com farmácias.
 
 ## Decisão
-A receita será persistida no PostgreSQL como um recurso próprio, sempre vinculado a uma consulta existente:
 
-1. **Modelo de dados:** A tabela `prescriptions` armazenará `patient_id`, `doctor_id`, `appointment_id` e `issued_at`. Os medicamentos serão armazenados em `prescription_items`, relacionados à receita por `prescription_id`, com `medication`, `dosage` e `instructions`.
-2. **Emissão:** A API aceitará a criação somente de usuários com papel `MEDICO`. Antes de persistir, o serviço validará que a consulta existe, pertence ao médico autenticado e corresponde ao paciente informado.
-3. **Endpoint de criação:** A primeira entrega usará `POST /api/v1/prescriptions`, retornando `201 Created` com a receita criada e seus itens.
-4. **Visibilidade:** A receita ficará disponível ao paciente da consulta e ao médico responsável. Usuários fora dessa relação receberão `403 Forbidden`; administradores poderão consultar o recurso conforme as regras administrativas da aplicação.
-5. **Consulta do recurso:** A leitura individual será feita por `GET /api/v1/prescriptions/{id}`. A listagem por usuário ficará disponível em `GET /api/v1/prescriptions` e será ordenada pela data de emissão.
-6. **Evolução incremental:** A consulta pela conta e a melhoria da experiência de notificação serão tratadas nas User Stories 2 e 3, sem alterar o vínculo obrigatório com a consulta. No estado atual, a criação já chama o módulo de notificações; a separação futura deve tornar esse efeito assíncrono e resiliente.
+### Modelo persistente
+
+A tabela `prescriptions` armazena:
+
+- `id` como UUID;
+- `patient_id` e `doctor_id` como FKs para `users`;
+- `appointment_id` como FK obrigatória para `appointments`;
+- `issued_at` como instante de emissão.
+
+A tabela `prescription_items` armazena os itens da receita:
+
+- `prescription_id` como FK com `ON DELETE CASCADE`;
+- `medication`;
+- `dosage`;
+- `instructions`.
+
+O modelo permite uma receita com múltiplos medicamentos e mantém a prescrição vinculada ao atendimento que a originou.
+
+### Fluxo de emissão
+
+1. `POST /api/v1/prescriptions` exige o papel `MEDICO` por `@PreAuthorize`.
+2. `PrescriptionService` carrega a consulta por `SchedulingFacade`.
+3. O serviço compara `appointment.doctorId()` com o usuário autenticado.
+4. O serviço compara `appointment.patientId()` com `request.patientId()`.
+5. Os itens do request são convertidos em `PrescriptionItem`.
+6. `Prescription.issue` cria o agregado e `PrescriptionRepository.save` persiste o cabeçalho e os itens.
+7. O serviço publica `PRESCRIPTION_ISSUED` para o paciente com o caminho `/receitas`.
+8. A resposta retorna `201 Created` com os dados da prescrição.
+
+Se a consulta não existir, retorna `404 Not Found`. Se o médico ou paciente não corresponderem à consulta, retorna `403 Forbidden`.
+
+### Contrato HTTP
+
+- `POST /api/v1/prescriptions`: emissão da receita pelo médico responsável.
+- `GET /api/v1/prescriptions`: lista receitas do médico autenticado ou do paciente autenticado.
+- `GET /api/v1/prescriptions/{id}`: retorna uma receita quando o usuário é paciente relacionado, médico emissor ou administrador.
+
+A criação recebe `patientId`, `appointmentId` e uma lista de itens com medicamento, dosagem e instruções. O agregado é somente criado após a validação do vínculo com a consulta.
+
+### Notificação
+
+A implementação atual chama `NotificationFacade` de forma síncrona após salvar a receita. A notificação é in-app, tem tipo `PRESCRIPTION_ISSUED`, inclui a consulta de origem e aponta para `/receitas`.
+
+A decisão mantém a notificação fora da persistência do agregado. Em uma evolução futura, o efeito deve usar outbox/evento transacional, retry e idempotência para impedir que falha de entrega afete a emissão ou gere duplicidade.
+
+## Alternativas tecnológicas consideradas
+
+### PostgreSQL relacional em vez de MongoDB
+
+Escolhemos PostgreSQL porque a receita possui vínculo obrigatório com `appointments`, `users` e seus itens. Foreign keys, transações e `ON DELETE CASCADE` ajudam a preservar a integridade entre o cabeçalho e os medicamentos.
+
+MongoDB permitiria guardar a receita e seus itens em um único documento, mas reduziria a proteção relacional já disponível no restante do sistema e introduziria uma segunda tecnologia de persistência. Só deve ser considerado se o formato dos documentos clínicos se tornar muito variável ou se houver uma necessidade comprovada de escala documental.
+
+### Itens em tabela filha em vez de JSON no cabeçalho
+
+Escolhemos `prescription_items` em vez de um campo JSON porque cada medicamento possui estrutura própria, validação independente e ciclo de vida dependente da receita. A tabela filha também mantém o modelo explícito para consultas e auditoria.
+
+Um JSON seria mais simples para uma primeira gravação, mas dificultaria validação, evolução do schema, consultas por item e integridade referencial. Pode ser útil apenas para metadados não estruturados que não participem das regras centrais.
+
+### Notificação síncrona em vez de outbox desde o início
+
+O MVP chama `NotificationFacade` na mesma transação de emissão para reduzir componentes e entregar feedback imediato. Uma outbox transacional com worker, retry e idempotência seria mais resiliente, mas adicionaria tabela, processamento assíncrono e monitoramento.
+
+A outbox é a alternativa recomendada quando falhas de e-mail, volume de notificações ou necessidade de reprocessamento passarem a ameaçar a confiabilidade do fluxo clínico.
+
+### Receita própria em vez de integração imediata com farmácias
+
+A primeira entrega persiste e disponibiliza a receita dentro da plataforma. Integração com farmácias, assinatura digital qualificada ou padrões externos exigiria requisitos regulatórios, credenciamento e contratos de integração; por isso, ficam fora desta decisão e devem possuir ADRs próprios.
+
+## Invariantes
+
+- Somente `MEDICO` pode criar uma receita.
+- O médico autenticado deve ser o médico da consulta.
+- O paciente informado deve ser o paciente da consulta.
+- A receita deve possuir uma consulta existente.
+- O paciente só lista e consulta as próprias receitas.
+- O médico só lista e consulta receitas que emitiu.
+- Usuário sem relação recebe `403 Forbidden` na consulta individual.
+- Conteúdo da receita não deve ser escrito em logs.
+
+## Segurança e observabilidade
+
+- Auditar criação e acesso a prescrições sem registrar medicamentos em texto nos logs.
+- Monitorar erros `403`, `404` e falhas de notificação.
+- Medir quantidade de receitas emitidas por consulta e por médico.
+- Manter autenticação JWT e autorização por recurso em todas as rotas.
+- Planejar assinatura digital qualificada, validação e integração externa como ADRs separados.
 
 ## Consequências
 
-**Positivas:**
+### Positivas
 
-- A receita tem rastreabilidade por consulta, paciente, médico e data de emissão.
-- O médico não consegue emitir uma receita para uma consulta de outro profissional ou para um paciente diferente.
-- A estrutura separa o cabeçalho da receita dos seus medicamentos e permite consultar o histórico do paciente.
-- A primeira entrega é pequena, ponta a ponta e não depende de integração externa com farmácias ou assinatura digital qualificada.
+- O vínculo obrigatório com `appointments` reduz emissão fora do contexto clínico.
+- O agregado suporta múltiplos medicamentos e histórico por paciente/médico.
+- A primeira entrega é pequena e não depende de farmácias ou de uma autoridade de assinatura externa.
 
-**Negativas / Riscos:**
+### Riscos e evolução
 
-- A receita persistida no MVP ainda não representa uma assinatura digital qualificada nem garante aceitação automática em farmácias.
-- É necessário validar a possibilidade de emitir mais de uma receita para a mesma consulta e definir esse comportamento conforme a regra de negócio.
-- Os dados da prescrição são sensíveis e devem permanecer protegidos por autenticação, autorização e criptografia do ambiente de persistência.
-- A implementação de notificações deve permanecer desacoplada para que uma falha de comunicação não desfaça a criação da receita.
+- Não há decisão de unicidade que impeça múltiplas receitas para a mesma consulta; a regra de reemissão deve ser definida antes de impor uma constraint.
+- A receita do MVP não é uma receita digital qualificada para todos os contextos regulatórios.
+- A notificação síncrona pode falhar depois da persistência; outbox é a evolução recomendada.
+
+## Validação
+
+Criar testes de integração para:
+
+- emissão válida pelo médico da consulta;
+- tentativa de emissão por paciente;
+- tentativa de emissão por outro médico;
+- paciente divergente da consulta;
+- consulta inexistente;
+- listagem isolada por paciente e médico;
+- acesso individual por usuário sem relação;
+- persistência de múltiplos itens;
+- geração de `PRESCRIPTION_ISSUED` sem duplicidade.
