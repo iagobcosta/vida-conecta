@@ -2,7 +2,7 @@
 
 Plataforma que conecta **pacientes** a **médicos** por consulta em vídeo, com histórico clínico compartilhado entre profissionais — apenas com **consentimento explícito** do paciente.
 
-Aplicação **pequena**: um backend monolítico modular, um frontend web e um serviço de vídeo em tempo real **desacoplado**.
+Aplicação **pequena**: um backend monolítico modular, um frontend web e integração com o Jitsi Meet para vídeo em tempo real **desacoplado**.
 
 ---
 
@@ -15,13 +15,13 @@ Pacientes agendam consultas, realizam videochamada com o médico, consultam o pr
 | Módulo | O que faz |
 | --- | --- |
 | Agendamento | Paciente escolhe médico, data e horário; confirma ou cancela consulta |
-| Videochamada | Consulta ao vivo (WebRTC), isolada do restante do sistema |
-| Prontuário eletrônico | Registro clínico do paciente, com storage separado e mais protegido |
+| Videochamada | Consulta ao vivo funcional com Jitsi Meet; o backend usa token mock apenas para autorizar a entrada na sala |
+| Prontuário eletrônico | Registro clínico cifrado no PostgreSQL no MVP; storage separado é a arquitetura-alvo |
 | Prescrição digital | Receita gerada pelo médico e disponibilizada ao paciente |
 
 ### Fora de escopo (Entregas futuras)
 
-Fila de espera, laudos de imagem, integração com farmácias e app mobile.
+Fila de espera, validação de cadastro por e-mail, laudos de imagem, integração com farmácias e app mobile.
 
 ---
 
@@ -41,7 +41,7 @@ Dados de saúde são **dados sensíveis**. A plataforma precisa de:
 | Indicador | Meta |
 | --- | --- |
 | Disponibilidade da plataforma | **99.9%** (~8,7 h de downtime/ano) |
-| Taxa de queda da videochamada | **≤ 1%** |
+| Taxa de queda da videochamada | **≤ 1%** (meta operacional para o Jitsi Meet) |
 
 Uso distribuído no dia comercial, com picos no **almoço** e no **fim da tarde**. A videochamada escala de forma independente (serviço de mídia separado).
 
@@ -49,11 +49,11 @@ Uso distribuído no dia comercial, com picos no **almoço** e no **fim da tarde*
 
 ## Arquitetura
 
-Monólito modular no Spring Boot: um único deploy, módulos internos (agendamento, prontuário, prescrição, consentimento, auth). O vídeo **não** passa pelo backend de negócio — só o sinal de “consulta iniciada/encerrada” e o token de sala.
+Monólito modular no Spring Boot: um único deploy, módulos internos (agendamento, prontuário, prescrição, consentimento, auth). O Jitsi Meet transporta a mídia da consulta; o backend autoriza a entrada por meio de um token mock e registra os eventos da sessão.
 
 ### Visão geral
 
-O frontend fala com o **backend** (API de negócio) e, na consulta, também com o **WebRTC** (mídia). Banco e prontuário só o backend acessa. **Grafana** concentra métricas e logs (disponibilidade e taxa de queda da chamada).
+O frontend fala com o **backend** (API de negócio) e incorpora o Jitsi Meet na tela da consulta. Banco e prontuário só o backend acessa. **Grafana** concentra métricas e logs.
 
 ```mermaid
 flowchart TB
@@ -62,22 +62,22 @@ flowchart TB
   BE[Backend<br/>Spring Boot]
 
   PG[(PostgreSQL<br/>usuários, agenda,<br/>consentimento, prescrição)]
-  EHR[(Storage protegido<br/>prontuário cifrado)]
-  SFU[WebRTC<br/>sala de videochamada]
+  EHR[(Prontuário cifrado<br/>PostgreSQL no MVP)]
+  JITSI[Jitsi Meet<br/>sala de videochamada]
 
   subgraph obs [Observabilidade]
     GRAF[Grafana]
   end
 
   FE -->|HTTPS / REST + JWT| BE
-  FE -->|mídia da consulta| SFU
+  FE -->|mídia da consulta| JITSI
 
   BE --> PG
   BE --> EHR
-  BE -.->|cria sala e devolve token| SFU
+  BE -->|autoriza entrada e devolve token mock| JITSI
 
   BE -->|métricas e logs| GRAF
-  SFU -->|taxa de queda da chamada| GRAF
+  JITSI -->|métricas da chamada| GRAF
 ```
 
 ### Módulos do backend
@@ -99,11 +99,11 @@ flowchart LR
   AUTH --> RX
   AG --> VID
   CONS --> PRONT
-  PRONT --> EHR[(Storage protegido)]
+  PRONT --> EHR[(PostgreSQL<br/>conteúdo cifrado no MVP)]
   AG --> PG[(PostgreSQL)]
   CONS --> PG
   RX --> PG
-  VID --> SFU[WebRTC]
+  VID --> JITSI[Jitsi Meet]
 ```
 
 ### Fluxo de uma consulta
@@ -115,7 +115,7 @@ sequenceDiagram
   participant API as API Spring Boot
   participant PG as PostgreSQL
   participant EHR as Storage prontuário
-  participant SFU as WebRTC
+  participant JITSI as Jitsi Meet
 
   Paciente->>API: Agenda consulta
   API->>PG: Persiste slot + status
@@ -123,11 +123,11 @@ sequenceDiagram
   Paciente->>API: Entrar na sala
   Médico->>API: Entrar na sala
   API->>API: Valida sessão e papéis
-  API->>SFU: Cria/libera token da sala
+  API->>JITSI: Autoriza entrada e devolve token mock
   API-->>Paciente: Token
   API-->>Médico: Token
-  Paciente->>SFU: Conecta mídia
-  Médico->>SFU: Conecta mídia
+  Paciente->>JITSI: Conecta mídia
+  Médico->>JITSI: Conecta mídia
   Médico->>API: Ler prontuário
   API->>PG: Consentimento válido?
   alt Consentimento explícito ok
@@ -149,8 +149,8 @@ sequenceDiagram
 | Frontend | React, Vite, Tailwind CSS |
 | Backend | Java, Spring Boot |
 | Banco transacional | PostgreSQL |
-| Prontuário | Storage cifrado separado (objeto ou volume dedicado; MongoDB apenas se o documento clínico exigir) |
-| Vídeo | WebRTC (SFU gerenciado, ex.: LiveKit / equivalente na AWS) |
+| Prontuário | PostgreSQL com conteúdo cifrado no MVP; storage separado previsto para evolução |
+| Vídeo | Jitsi Meet (mídia WebRTC; self-hosted ou serviço público) |
 | Nuvem | AWS (HTTPS, criptografia em repouso, backups) |
 | Código | GitHub | Observabilidade com Grafana
 
@@ -164,7 +164,7 @@ sequenceDiagram
 - Consentimento versionado (quem, o quê, até quando, revogação)
 - Auditoria de acesso ao prontuário (quem leu, quando, em qual consulta)
 - Segredos fora do código (variáveis de ambiente / secret manager)
-- Minimização: o SFU de vídeo **não** persiste conteúdo clínico
+- Minimização: o Jitsi Meet **não** persiste conteúdo clínico da consulta
 - Anonimização dos dados pessoais(dica do professor a melhorar)
 
 ---
