@@ -141,3 +141,4 @@ Criar testes de integração para:
 - escrita por médico que não pertence à consulta;
 - cifra e decifra do conteúdo sem vazamento em logs;
 - criação dos eventos de auditoria permitidos e negados.
+
